@@ -1,58 +1,82 @@
-import sys
-import os
+import argparse
+import logging
+from pathlib import Path
+from typing import Dict, List, Tuple
+
 import pandas as pd
-from utils import list_files_recursive
+from rdkit import Chem
+from rdkit.Chem import inchi as rdinchi
 
-if __name__ == '__main__':
-    print('\n\n--> Starting create_query_list.py ...\n\n')
 
-    directory_path = sys.argv[1] 
-    files = list_files_recursive(directory_path)
+def inchikey_from_inchi(inchi: str) -> str:
+    """Convert InChI to InChIKey using RDKit; return empty string on error."""
+    if not inchi:
+        return ""
+    try:
+        mol = Chem.MolFromInchi(inchi)
+        if mol is None:
+            return ""
+        return rdinchi.MolToInchiKey(mol) or ""
+    except Exception:
+        return ""
 
-    os.makedirs("results", exist_ok=True)
 
-    output_file = "results/query_list.tsv"
-    
-    print(f'Processing files in directory: {directory_path}')
-    print(f'Total files: {len(files)}')
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Generate query list (accession|inchi|inchikey) from files.")
+    parser.add_argument("directory", type=Path, help="Root directory containing files")
+    parser.add_argument(
+        "--output", "-o", type=Path, default=Path("results/query_list.tsv"), help="Target TSV file"
+    )
+    args = parser.parse_args()
 
-    accessions: list[str] = []
-    inchis: list[str] = []
-    for i, file in enumerate(files):
-        lines = list() 
-        # print(f'Processing file {i + 1}/{len(files)} -> {file}')
-        with open(file, 'r') as f:
-            lines = f.readlines()
-            chemont_line_index = -1
-            last_chlink_line_index = -1
-            iupac_line_index = -1
-            accession = ""
-            for j, line in enumerate(lines):
-                if line.startswith('ACCESSION:'):
-                    accession = line.split(':')[1].strip()
-                elif line.startswith('CH$LINK: ChemOnt'):
-                    chemont_line_index = j
-                elif line.startswith('CH$LINK:'):
-                    last_chlink_line_index = j
-                elif line.startswith('CH$IUPAC:'):
-                    iupac_line_index = j
-                elif line.startswith('CH$SMILES:'):
-                    smiles_line_index = j
-            if(accession != "" and chemont_line_index == -1 and iupac_line_index != -1):           
-                inchi = lines[iupac_line_index].split(":")[1].strip()                
-                if inchi.startswith('InChI='):                    
-                    accessions.append(accession)
-                    inchis.append(inchi)
 
-    print(f'Total accessions without ChemOnt classification: {len(accessions)}')
-    print(f'Total InChIs without ChemOnt classification: {len(inchis)}')
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    logging.info('\n\n--> Starting create_query_list.py ...\n\n')
+    directory: Path = args.directory.expanduser().resolve()
+    output: Path = args.output
 
-    # create dataframe
-    df = pd.DataFrame({
-        'accession': accessions,
-        'inchi': inchis
-    })    
+    # Find files excluding hidden paths
+    files = [p for p in directory.rglob("MSBNK-*.txt") if not any(part.startswith(".") for part in p.parts)]
+    logging.info("Processing directory: %s", directory)
+    logging.info("Total files found: %d", len(files))
 
-    # write the dataframe to a TSV file    
-    df.to_csv(output_file, index=False, header=False, sep='|')
-    print(f'Query list saved to {output_file}')   
+    cache: Dict[str, str] = {}
+    rows: List[Tuple[str, str, str]] = []
+
+    for fp in files:
+        accession = None
+        inchi = None
+        skip = False
+        try:
+            with fp.open("r", encoding="utf-8", errors="ignore") as fh:
+                for raw in fh:
+                    line = raw.strip()
+                    if line.startswith("ACCESSION:"):
+                        accession = line.split(":", 1)[1].strip()
+                    elif line.startswith("CH$LINK:") and "ChemOnt" in line:
+                        skip = True
+                        break
+                    elif line.startswith("CH$IUPAC:"):
+                        inchi = line.split(":", 1)[1].strip()
+        except Exception as e:
+            logging.debug("Error reading %s: %s", fp, e)
+            continue
+
+        if skip:
+            continue
+        if accession and inchi and inchi.startswith("InChI="):
+            if inchi not in cache:
+                cache[inchi] = inchikey_from_inchi(inchi)
+            rows.append((accession, inchi, cache[inchi]))
+
+    logging.info("Total accessions without ChemOnt classification: %d", len(rows))
+
+    df = pd.DataFrame(rows, columns=["accession", "inchi", "inchikey"])
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output, index=False, header=False, sep="|", encoding="utf-8")
+    logging.info("Query list saved to %s", output)
+
+
+if __name__ == "__main__":
+    main()
