@@ -7,6 +7,7 @@ from typing import Dict, List
 
 import pandas as pd
 import requests
+from pandas.errors import EmptyDataError
 
 url = "http://classyfire.wishartlab.com"
 
@@ -43,8 +44,34 @@ def main() -> None:
     if not input_tsv.exists():
         logging.error("Input file not found: %s", input_tsv)
         return
-    df = pd.read_csv(input_tsv, sep="|", header=None, names=["accession", "inchi", "inchikey"], dtype=str)
-    df.fillna("")
+    if input_tsv.stat().st_size == 0:
+        logging.info("Input file is empty: %s", input_tsv)
+        outdir.mkdir(parents=True, exist_ok=True)
+        mapping_path = outdir / "mapping.json"
+        with mapping_path.open("w", encoding="utf-8") as f:
+            json.dump({}, f, indent=2, ensure_ascii=False)
+        logging.info("Empty mapping saved to %s", mapping_path)
+        return
+    try:
+        df = pd.read_csv(input_tsv, sep="|", header=None, names=["accession", "inchi", "inchikey"], dtype=str)
+    except EmptyDataError:
+        logging.info("Input file has no parseable rows: %s", input_tsv)
+        outdir.mkdir(parents=True, exist_ok=True)
+        mapping_path = outdir / "mapping.json"
+        with mapping_path.open("w", encoding="utf-8") as f:
+            json.dump({}, f, indent=2, ensure_ascii=False)
+        logging.info("Empty mapping saved to %s", mapping_path)
+        return
+
+    df = df.fillna("")
+    if df.empty:
+        logging.info("Input table is empty after parsing: %s", input_tsv)
+        outdir.mkdir(parents=True, exist_ok=True)
+        mapping_path = outdir / "mapping.json"
+        with mapping_path.open("w", encoding="utf-8") as f:
+            json.dump({}, f, indent=2, ensure_ascii=False)
+        logging.info("Empty mapping saved to %s", mapping_path)
+        return
 
     accessions: List[str] = df["accession"].tolist()
     inchikeys: List[str] = df["inchikey"].str.strip().tolist()

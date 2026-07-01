@@ -3,7 +3,9 @@ import sys
 import json
 import time
 import datetime
+from pathlib import Path
 import pandas as pd
+from pandas.errors import EmptyDataError
 from utils import get_results, inchi_to_canonical_smiles, smiles_to_inchi_key, structure_query
 
 if __name__ == '__main__':
@@ -16,8 +18,36 @@ if __name__ == '__main__':
     waiting_time = int(sys.argv[1])
 
     # 1. Read TSV file
-    df = pd.read_csv("results/query_list.tsv", sep='|', header=None)
-    
+    query_list_path = Path("results/query_list.tsv")
+    if not query_list_path.exists():
+        print(f"Input file not found: {query_list_path}")
+        sys.exit(0)
+    if query_list_path.stat().st_size == 0:
+        print(f"Input file is empty: {query_list_path}. Nothing to process.")
+        with open('results/mapping.json', 'w') as f:
+            json.dump({}, f, indent=4)
+        with open('results/merged_results.json', 'w') as f:
+            json.dump({}, f, indent=4)
+        sys.exit(0)
+
+    try:
+        df = pd.read_csv(query_list_path, sep='|', header=None)
+    except EmptyDataError:
+        print(f"Input file has no parseable rows: {query_list_path}. Nothing to process.")
+        with open('results/mapping.json', 'w') as f:
+            json.dump({}, f, indent=4)
+        with open('results/merged_results.json', 'w') as f:
+            json.dump({}, f, indent=4)
+        sys.exit(0)
+
+    if df.empty or df.shape[1] < 2:
+        print(f"Input file has no valid accession/inchi rows: {query_list_path}. Nothing to process.")
+        with open('results/mapping.json', 'w') as f:
+            json.dump({}, f, indent=4)
+        with open('results/merged_results.json', 'w') as f:
+            json.dump({}, f, indent=4)
+        sys.exit(0)
+
     accessions: list[str] = df.iloc[:, 0].tolist()
     inchis: list[str] = df.iloc[:, 1].tolist()
 
