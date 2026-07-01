@@ -10,7 +10,7 @@ if __name__ == '__main__':
     print('\n\n--> Starting request.py ...\n\n')
 
     if len(sys.argv) < 2:
-        print("Usage: python request.py <waiting_time[seconds]>")
+        print("Usage: python request.py <waiting_time[seconds] min is 120s>")
         sys.exit(1)
 
     waiting_time = int(sys.argv[1])
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     print(f'Total unique input SMILES: {len(smiles_input_list)}')
 
     # 4. Split into chunks
-    chunk_size = 500
+    chunk_size = 100
     chunks = [smiles_input_list[i:i + chunk_size] for i in range(0, len(smiles_input_list), chunk_size)]
     print(f'Total chunks: {len(chunks)}')   
 
@@ -68,18 +68,18 @@ if __name__ == '__main__':
             time.sleep(8)
 
     # Simulate waiting for the results to be ready
-    print(f'Waiting for {waiting_time} seconds, check every 300 seconds for results...')
-    interval = 300
+    waiting_time = max(waiting_time, 120)
+    print(f'Waiting for {waiting_time} seconds, check every 60 seconds for results...')
+    interval = 60
     start_time = datetime.datetime.now()
+    time.sleep(interval)
+    elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
     # Fetch results
     for i, query_id in enumerate(query_ids):
         response = "{}"
         result = {}
-        elapsed = 0
         while elapsed < waiting_time:
-            time.sleep(interval)
-            elapsed = (datetime.datetime.now() - start_time).total_seconds()
             print(f'Elapsed time: {elapsed}s.')
             try:
                 response = get_results(query_id)
@@ -93,6 +93,9 @@ if __name__ == '__main__':
                 break
             else:
                 print(f'Chunk {i + 1}: Status = {status}')
+
+            time.sleep(interval)
+            elapsed = (datetime.datetime.now() - start_time).total_seconds()
 
         with open(f'results/intermediate_results/chunk_{i + 1}_results.json', 'w') as f:
             json.dump(result, f)
