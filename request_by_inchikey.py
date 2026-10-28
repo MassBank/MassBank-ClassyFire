@@ -6,20 +6,17 @@ from pathlib import Path
 from typing import Dict, List
 
 import pandas as pd
-import requests
 from pandas.errors import EmptyDataError
 
-url = "http://classyfire.wishartlab.com"
+from utils import request_with_retry, url
 
 
 def get_entity_by_inchikey(inchikey):
-    r = requests.get(f"{url}/entities/{inchikey}.json", headers={"Content-Type": "application/json"})
-    if r.status_code == 200:
-        return r.json()
+    r = request_with_retry("GET", f"{url}/entities/{inchikey}.json", headers={"Content-Type": "application/json"},
+                           allowed_statuses=(404,))
     if r.status_code == 404:
         return None
-    r.raise_for_status()
-    return None
+    return r.json()
 
 
 def main() -> None:
